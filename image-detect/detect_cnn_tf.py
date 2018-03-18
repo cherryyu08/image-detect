@@ -149,7 +149,7 @@ def predict(Z, X, Y, X_pre, Y_pre):
     return prediction
 
 
-def model(X_train, Y_train, X_test, Y_test, learning_rate=0.0006, num_epochs=30, minibatch_size=20, print_cost=True):
+def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=30, minibatch_size=10, print_cost=True):
     # Implements a three-layer ConvNet in Tensorflow:
     # CONV2D -> RELU -> MAXPOOL -> CONV2D -> RELU -> MAXPOOL -> FLATTEN -> FULLYCONNECTED
     # X_train - - training set, of shape(None, 64, 64, 3)
@@ -180,12 +180,11 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.0006, num_epochs=30,
 
     # initial all the variables globally
     init = tf.global_variables_initializer()
-
     with tf.Session() as sess:
 
         sess.run(init)
-        debug_sess = tf_debug.LocalCLIDebugWrapperSession(sess=sess)
-        debug_sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+        # debug_sess = tf_debug.LocalCLIDebugWrapperSession(sess=sess)
+        # debug_sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
 
         for epoch in range(num_epochs):
 
