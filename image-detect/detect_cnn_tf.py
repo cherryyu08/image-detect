@@ -71,11 +71,17 @@ def create_placeholders(n_H0, n_W0, n_C0, n_y):
     return X, Y
 
 
-def initialize_parameters():
+def initialize_parameters(lambd):
     W1 = tf.get_variable("W1", shape=[4, 4, 128, 64], initializer=tf.contrib.layers.xavier_initializer(seed=0))
     W2 = tf.get_variable("W2", shape=[2, 2, 64, 32], initializer=tf.contrib.layers.xavier_initializer(seed=0))
     W3 = tf.get_variable("W3", shape=[2, 2, 32, 16], initializer=tf.contrib.layers.xavier_initializer(seed=0))
     W4 = tf.get_variable("W4", shape=[1, 1, 16, 8], initializer=tf.contrib.layers.xavier_initializer(seed=0))
+
+    # add_to_collection函数将这个新生成变量的L2正则化损失加入集合
+    tf.add_to_collection('losses', tf.contrib.layers.l2_regularizer(lambd)(W1))
+    tf.add_to_collection('losses', tf.contrib.layers.l2_regularizer(lambd)(W2))
+    tf.add_to_collection('losses', tf.contrib.layers.l2_regularizer(lambd)(W3))
+    tf.add_to_collection('losses', tf.contrib.layers.l2_regularizer(lambd)(W4))
 
     parameters = {"W1": W1, "W2": W2, "W3": W3, "W4": W4}
 
@@ -96,6 +102,7 @@ def forward_propagation(X, parameters):
     A1 = tf.nn.relu(Z1)
     # MAXPOOL: window 8x8, sride 8, padding 'SAME'
     P1 = tf.nn.max_pool(A1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+
     # CONV2D: filters W2, stride 1, padding 'SAME'
     Z2 = tf.nn.conv2d(P1, W2, strides=[1, 1, 1, 1], padding='SAME')
     # RELU
@@ -127,9 +134,14 @@ def forward_propagation(X, parameters):
 def compute_cost(Z3, Y):
 
     # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=Z3, labels=Y))
-    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=Z3, labels=Y))
+    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=Z3, labels=Y))  # 计算均值
 
-    return cost
+    # 将损失函数加入losses集合中
+    tf.add_to_collection('losses', cost)
+    # 将losses集合中的所有损失函数加起来得到最终的损失函数
+    loss = tf.add_n(tf.get_collection('losses'))
+
+    return loss
 
 
 def predict(Z, X, Y, X_pre, Y_pre):
@@ -149,7 +161,7 @@ def predict(Z, X, Y, X_pre, Y_pre):
     return prediction
 
 
-def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=30, minibatch_size=10, print_cost=True):
+def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50, minibatch_size=10, lambd=0.005, print_cost=True):
     # Implements a three-layer ConvNet in Tensorflow:
     # CONV2D -> RELU -> MAXPOOL -> CONV2D -> RELU -> MAXPOOL -> FLATTEN -> FULLYCONNECTED
     # X_train - - training set, of shape(None, 64, 64, 3)
@@ -167,7 +179,7 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=30
     X, Y = create_placeholders(n_H0, n_W0, n_C0, n_y)
 
     # initialize parameters
-    parameters = initialize_parameters()
+    parameters = initialize_parameters(lambd)
 
     # forward propagation : build the forward propagation in the tensorflow graph
     Z3 = forward_propagation(X, parameters)
