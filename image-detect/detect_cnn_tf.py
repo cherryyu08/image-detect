@@ -1,13 +1,19 @@
-import math
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-from tensorflow.python import debug as tf_debug
 import time
 
 
 def load_dataset():
+
+    descriptors = np.load("images/MICC-F2000_desc.npy")
+    labels = np.load("images/MICC-F2000_label.npy")
+    labels = labels.reshape(labels.shape[0], 1)
+
+    return descriptors, labels
+
+
+def load_dataset220():
 
     descriptors = np.load("images/MICC-F220_desc.npy")
     labels = np.load("images/MICC-F220_label.npy")
@@ -16,12 +22,10 @@ def load_dataset():
     return descriptors, labels
 
 
-X_train_orig, Y_train_orig = load_dataset()
-print(X_train_orig.shape, Y_train_orig.shape)
-X_train, X_test, Y_train, Y_test = \
-    train_test_split(X_train_orig, Y_train_orig, test_size=0.33, random_state=0)  # 0每次产生的随机数不一样，1一样
-Y_train = np.array(Y_train).reshape(Y_train.shape[0], 1)
-Y_test = np.array(Y_test).reshape(Y_test.shape[0], 1)
+X_train, Y_train = load_dataset()
+print(X_train.shape, Y_train.shape)
+X_test, Y_test = load_dataset220()
+print(X_test.shape, Y_test.shape)
 
 
 # create a list of random mini  batches from (X,Y)
@@ -37,7 +41,7 @@ def random_mini_batches(X, Y, mini_batch_size):
     shuffled_Y = Y[permutation, :]
 
     # step 2: partition (shuffled_X,shuffled_Y).minus the end case.
-    num_complete_minibatchs = math.floor(m/mini_batch_size)
+    num_complete_minibatchs = int(m/mini_batch_size)
 
     for k in range(0, num_complete_minibatchs):
         mini_batch_X = shuffled_X[k*mini_batch_size:k*mini_batch_size+mini_batch_size, :, :, :]
@@ -150,24 +154,30 @@ def predict(Z, X, Y, X_pre, Y_pre):
     predicts = predict_op.eval({X: X_pre, Y: Y_pre})
     m = predicts.shape[0]
     p = np.zeros((m, 1))
+    y = Y.eval({Y: Y_pre})
+    tp = 0.
+    tn = 0.
+    fp = 0.
+    fn = 0.
     for i in range(0, m):
         if predicts[i, 0] > 0.5:
             p[i, 0] = 1
+            if y[i, 0] == 1:
+                tp += 1
+            else:
+                fp += 1
         else:
             p[i, 0] = 0
-    y = Y.eval({Y: Y_pre})
+            if y[i, 0] == 1:
+                fn += 1
+            else:
+                tn += 1
     prediction = np.sum((p == y) / m)
 
-    return prediction
+    return prediction, tp, tn, fp, fn
 
 
-def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50, minibatch_size=10, lambd=0.005, print_cost=True):
-    # Implements a three-layer ConvNet in Tensorflow:
-    # CONV2D -> RELU -> MAXPOOL -> CONV2D -> RELU -> MAXPOOL -> FLATTEN -> FULLYCONNECTED
-    # X_train - - training set, of shape(None, 64, 64, 3)
-    # Y_train - - test set, of shape(None, n_y=6)
-    # X_test - - training set, of shape(None, 64, 64, 3)
-    # Y_test - - test set, of shape(None, n_y=6)
+def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=100, minibatch_size=60, lambd=0.005, print_cost=True):
 
     (m, n_H0, n_W0, n_C0) = X_train.shape
     n_y = Y_train.shape[1]
@@ -182,10 +192,10 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50
     parameters = initialize_parameters(lambd)
 
     # forward propagation : build the forward propagation in the tensorflow graph
-    Z3 = forward_propagation(X, parameters)
+    Z = forward_propagation(X, parameters)
 
     # cost function
-    cost = compute_cost(Z3, Y)
+    cost = compute_cost(Z, Y)
 
     # backpropagation
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
@@ -195,14 +205,10 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50
     with tf.Session() as sess:
 
         sess.run(init)
-        # debug_sess = tf_debug.LocalCLIDebugWrapperSession(sess=sess)
-        # debug_sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
 
         for epoch in range(num_epochs):
 
             minibatch_cost = 0.
-            train_accuracy = 0.
-            test_accuracy = 0.
             num_minibatches = int(m / minibatch_size)
             minibatches = random_mini_batches(X_train, Y_train, minibatch_size)
             for minibatch in minibatches:
@@ -213,14 +219,18 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50
 
                 minibatch_cost += temp_cost / num_minibatches
 
-                train_accuracy = predict(Z3, X, Y, X_train, Y_train)
-                test_accuracy = predict(Z3, X, Y, X_test, Y_test)
+            train_accuracy, _, _, _, _ = predict(Z, X, Y, X_train, Y_train)
+            test_accuracy, train_tp, train_tn, train_fp, train_fn = predict(Z, X, Y, X_test, Y_test)
+            train_tpr = train_tp / (train_tp + train_fn)
+            train_fpr = train_fp / (train_fp + train_tn)
 
             # print the cost every epoch
             if print_cost == True and epoch % 5 == 0:
                 print("Cost after epoch %i: %f" % (epoch, minibatch_cost))
                 print("train_accuracy after epoch %i: %f" % (epoch, train_accuracy))
                 print("test_accuracy after epoch %i: %f" % (epoch, test_accuracy))
+                print("TP,TN,FP,FN,TPR,FPR : "
+                      "%f %f %f %f %f %f" % (train_tp, train_tn, train_fp, train_fn, train_tpr, train_fpr))
             if print_cost == True and epoch % 1 == 0:
                 costs.append(minibatch_cost)
                 train_acc.append(train_accuracy)
@@ -246,8 +256,8 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate=0.00061, num_epochs=50
 
         plt.show()
 
-        train_accuracy = predict(Z3, X, Y, X_train, Y_train)
-        test_accuracy = predict(Z3, X, Y, X_test, Y_test)
+        train_accuracy, _, _, _, _ = predict(Z, X, Y, X_train, Y_train)
+        test_accuracy, _, _, _, _ = predict(Z, X, Y, X_test, Y_test)
 
         print("Train Accuracy:", train_accuracy)
         print("Test Accuracy:", test_accuracy)
